@@ -70,6 +70,24 @@ const FORMATIONS: Record<string, Position[][]> = {
   ],
 };
 
+const actionButton: React.CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 9,
+  border: "1px solid #94a3b8",
+  background: "linear-gradient(#ffffff, #e5e7eb)",
+  color: "#111827",
+  fontWeight: 900,
+  fontSize: 12,
+  boxShadow: "0 2px 0 rgba(0,0,0,.25)",
+  cursor: "pointer",
+};
+
+const darkButton: React.CSSProperties = {
+  ...actionButton,
+  background: "linear-gradient(#1f2937, #111827)",
+  color: "white",
+};
+
 function emptyPositions(formation: string): Record<string, string[]> {
   const result: Record<string, string[]> = {};
   FORMATIONS[formation].flat().forEach((p) => {
@@ -250,10 +268,7 @@ export default function Home() {
   };
 
   const toggleAbsent = (playerId: string) => {
-    setAbsentIds((prev) => {
-      const next = { ...prev, [playerId]: !prev[playerId] };
-      return next;
-    });
+    setAbsentIds((prev) => ({ ...prev, [playerId]: !prev[playerId] }));
 
     setPositions((prev) =>
       Object.fromEntries(
@@ -318,7 +333,16 @@ export default function Home() {
           <h1 style={{ fontSize: 14, margin: "0 0 5px" }}>
             8人制サッカー 出場管理
           </h1>
-          <input type="file" accept=".csv,text/csv" onChange={handleCSV} />
+
+          <label style={{ ...darkButton, display: "inline-block" }}>
+            CSV読込
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleCSV}
+              style={{ display: "none" }}
+            />
+          </label>
         </div>
 
         <div style={{ display: "flex", gap: 5, alignItems: "start" }}>
@@ -326,14 +350,7 @@ export default function Home() {
             <button
               key={f}
               onClick={() => changeFormation(f)}
-              style={{
-                padding: "5px 8px",
-                borderRadius: 8,
-                border: "1px solid #94a3b8",
-                background: formation === f ? "#1f2937" : "white",
-                color: formation === f ? "white" : "#111827",
-                fontWeight: 800,
-              }}
+              style={formation === f ? darkButton : actionButton}
             >
               {f}
             </button>
@@ -341,11 +358,14 @@ export default function Home() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-        <button onClick={saveMatch} style={{ padding: "5px 9px", fontWeight: 800 }}>
-          {editingMatchNo ? `第${editingMatchNo}試合を修正保存` : `第${matches.length + 1}試合を登録`}
+      <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+        <button onClick={saveMatch} style={darkButton}>
+          {editingMatchNo
+            ? `第${editingMatchNo}試合を修正保存`
+            : `第${matches.length + 1}試合を登録`}
         </button>
-        <button onClick={clearBoard} style={{ padding: "5px 9px" }}>
+
+        <button onClick={clearBoard} style={actionButton}>
           盤面クリア
         </button>
       </div>
@@ -356,13 +376,7 @@ export default function Home() {
             <button
               key={m.matchNo}
               onClick={() => editMatch(m.matchNo)}
-              style={{
-                padding: "4px 7px",
-                borderRadius: 7,
-                border: "1px solid #64748b",
-                background: editingMatchNo === m.matchNo ? "#facc15" : "#111827",
-                color: editingMatchNo === m.matchNo ? "#111827" : "white",
-              }}
+              style={editingMatchNo === m.matchNo ? actionButton : darkButton}
             >
               第{m.matchNo}試合 修正
             </button>
@@ -454,6 +468,7 @@ export default function Home() {
                               background: "white",
                               padding: "3px 4px",
                               color: "#111827",
+                              cursor: "pointer",
                             }}
                           >
                             {playerMap[id]?.nickname} ×
@@ -498,18 +513,21 @@ export default function Home() {
 
             <thead>
               <tr>
-                {["No", "愛称", "FW", "MF", "DF", "GK", "計", "不在"].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      borderBottom: "1px solid #64748b",
-                      padding: "5px 2px",
-                      textAlign: h === "No" || h === "愛称" ? "left" : "right",
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {["No", "愛称", "FW", "MF", "DF", "GK", "計", "不在"].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      style={{
+                        borderBottom: "1px solid #64748b",
+                        padding: "5px 2px",
+                        textAlign:
+                          h === "No" || h === "愛称" ? "left" : "right",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  )
+                )}
               </tr>
             </thead>
 
@@ -577,11 +595,13 @@ export default function Home() {
                           toggleAbsent(p.id);
                         }}
                         style={{
+                          ...actionButton,
                           fontSize: 10,
                           padding: "3px 4px",
                           borderRadius: 6,
-                          border: "1px solid #64748b",
-                          background: absent ? "#9ca3af" : "#111827",
+                          background: absent
+                            ? "linear-gradient(#9ca3af, #6b7280)"
+                            : "linear-gradient(#1f2937, #111827)",
                           color: absent ? "#111827" : "white",
                         }}
                       >
