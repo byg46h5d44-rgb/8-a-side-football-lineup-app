@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 type Group = "FW" | "MF" | "DF" | "GK";
 
@@ -70,7 +71,7 @@ const FORMATIONS: Record<string, Position[][]> = {
   ],
 };
 
-const actionButton: React.CSSProperties = {
+const actionButton: CSSProperties = {
   padding: "6px 10px",
   borderRadius: 9,
   border: "1px solid #94a3b8",
@@ -82,7 +83,7 @@ const actionButton: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const darkButton: React.CSSProperties = {
+const darkButton: CSSProperties = {
   ...actionButton,
   background: "linear-gradient(#1f2937, #111827)",
   color: "white",
@@ -107,6 +108,61 @@ function formatCount(value: number) {
   return Number.isInteger(value) ? String(value) : String(value);
 }
 
+function LongPressRemoveButton({
+  label,
+  onRemove,
+}: {
+  label: string;
+  onRemove: () => void;
+}) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pressing, setPressing] = useState(false);
+
+  const startPress = () => {
+    setPressing(true);
+    timerRef.current = setTimeout(() => {
+      onRemove();
+      setPressing(false);
+    }, 550);
+  };
+
+  const cancelPress = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    setPressing(false);
+  };
+
+  return (
+    <button
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        startPress();
+      }}
+      onPointerUp={(event) => {
+        event.stopPropagation();
+        cancelPress();
+      }}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+      onClick={(event) => event.stopPropagation()}
+      style={{
+        fontSize: 11,
+        fontWeight: 800,
+        borderRadius: 8,
+        border: pressing ? "2px solid #dc2626" : "1px solid #86efac",
+        background: pressing ? "#fee2e2" : "white",
+        padding: "3px 4px",
+        color: "#111827",
+        cursor: "pointer",
+        touchAction: "manipulation",
+      }}
+      title="長押しで削除"
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function Home() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [formation, setFormation] = useState("2-4-1");
@@ -122,6 +178,23 @@ export default function Home() {
     () => Object.fromEntries(players.map((p) => [p.id, p])),
     [players]
   );
+
+  const currentPositionMap = useMemo(() => {
+    const result: Record<string, string> = {};
+    const positionLabelMap = Object.fromEntries(
+      FORMATIONS[formation].flat().map((p) => [p.id, p.label])
+    );
+
+    Object.entries(positions).forEach(([positionId, ids]) => {
+      ids.forEach((id) => {
+        result[id] = result[id]
+          ? `${result[id]}/${positionLabelMap[positionId]}`
+          : positionLabelMap[positionId];
+      });
+    });
+
+    return result;
+  }, [positions, formation]);
 
   const assignedMap = useMemo(() => {
     const result: Record<string, boolean> = {};
@@ -454,25 +527,11 @@ export default function Home() {
 
                       <div style={{ display: "grid", gap: 3 }}>
                         {ids.map((id) => (
-                          <button
+                          <LongPressRemoveButton
                             key={id}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              removePlayer(pos.id, id);
-                            }}
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 800,
-                              borderRadius: 8,
-                              border: "1px solid #86efac",
-                              background: "white",
-                              padding: "3px 4px",
-                              color: "#111827",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {playerMap[id]?.nickname} ×
-                          </button>
+                            label={`${playerMap[id]?.nickname ?? ""} 長押し削除`}
+                            onRemove={() => removePlayer(pos.id, id)}
+                          />
                         ))}
 
                         {ids.length < 2 && (
@@ -501,27 +560,30 @@ export default function Home() {
             }}
           >
             <colgroup>
-              <col style={{ width: 26 }} />
-              <col style={{ width: 50 }} />
               <col style={{ width: 24 }} />
-              <col style={{ width: 24 }} />
-              <col style={{ width: 24 }} />
-              <col style={{ width: 24 }} />
-              <col style={{ width: 24 }} />
-              <col style={{ width: 34 }} />
+              <col style={{ width: 46 }} />
+              <col style={{ width: 28 }} />
+              <col style={{ width: 22 }} />
+              <col style={{ width: 22 }} />
+              <col style={{ width: 22 }} />
+              <col style={{ width: 22 }} />
+              <col style={{ width: 22 }} />
+              <col style={{ width: 32 }} />
             </colgroup>
 
             <thead>
               <tr>
-                {["No", "愛称", "FW", "MF", "DF", "GK", "計", "不在"].map(
+                {["No", "愛称", "位置", "FW", "MF", "DF", "GK", "計", "不在"].map(
                   (h) => (
                     <th
                       key={h}
                       style={{
                         borderBottom: "1px solid #64748b",
-                        padding: "5px 2px",
+                        padding: "5px 1px",
                         textAlign:
-                          h === "No" || h === "愛称" ? "left" : "right",
+                          h === "No" || h === "愛称" || h === "位置"
+                            ? "left"
+                            : "right",
                       }}
                     >
                       {h}
@@ -555,10 +617,10 @@ export default function Home() {
                       cursor: absent ? "default" : "pointer",
                     }}
                   >
-                    <td style={{ padding: "6px 2px" }}>{p.number}</td>
+                    <td style={{ padding: "6px 1px" }}>{p.number}</td>
                     <td
                       style={{
-                        padding: "6px 2px",
+                        padding: "6px 1px",
                         fontWeight: 800,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -567,28 +629,37 @@ export default function Home() {
                     >
                       {p.nickname}
                     </td>
-                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
+                    <td
+                      style={{
+                        padding: "6px 1px",
+                        fontWeight: 900,
+                        color: selected ? "#111827" : "#facc15",
+                      }}
+                    >
+                      {currentPositionMap[p.id] || ""}
+                    </td>
+                    <td style={{ padding: "6px 1px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.FW || 0)}
                     </td>
-                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
+                    <td style={{ padding: "6px 1px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.MF || 0)}
                     </td>
-                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
+                    <td style={{ padding: "6px 1px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.DF || 0)}
                     </td>
-                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
+                    <td style={{ padding: "6px 1px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.GK || 0)}
                     </td>
                     <td
                       style={{
-                        padding: "6px 2px",
+                        padding: "6px 1px",
                         textAlign: "right",
                         fontWeight: 900,
                       }}
                     >
                       {formatCount(totals[p.id]?.total || 0)}
                     </td>
-                    <td style={{ padding: "4px 2px", textAlign: "right" }}>
+                    <td style={{ padding: "4px 1px", textAlign: "right" }}>
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
