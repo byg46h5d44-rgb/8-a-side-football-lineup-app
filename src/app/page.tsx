@@ -156,7 +156,6 @@ function LongPressRemoveButton({
         cursor: "pointer",
         touchAction: "manipulation",
       }}
-      title="長押しで削除"
     >
       {label}
     </button>
@@ -529,7 +528,7 @@ export default function Home() {
                         {ids.map((id) => (
                           <LongPressRemoveButton
                             key={id}
-                            label={`${playerMap[id]?.nickname ?? ""} 長押し削除`}
+                            label={playerMap[id]?.nickname ?? ""}
                             onRemove={() => removePlayer(pos.id, id)}
                           />
                         ))}
@@ -545,6 +544,18 @@ export default function Home() {
                 })}
               </div>
             ))}
+
+            <div
+              style={{
+                textAlign: "right",
+                fontSize: 10,
+                color: "#d1fae5",
+                marginTop: 4,
+                opacity: 0.85,
+              }}
+            >
+              ※長押しで削除
+            </div>
           </div>
         </section>
 
