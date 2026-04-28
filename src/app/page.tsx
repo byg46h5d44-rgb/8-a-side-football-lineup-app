@@ -17,6 +17,12 @@ type Position = {
   group: Group;
 };
 
+type MatchRecord = {
+  matchNo: number;
+  formation: string;
+  positions: Record<string, string[]>;
+};
+
 const FORMATIONS: Record<string, Position[][]> = {
   "3-3-1": [
     [{ id: "FW", label: "FW", group: "FW" }],
@@ -72,6 +78,12 @@ function emptyPositions(formation: string): Record<string, string[]> {
   return result;
 }
 
+function clonePositions(positions: Record<string, string[]>) {
+  return Object.fromEntries(
+    Object.entries(positions).map(([key, value]) => [key, [...value]])
+  );
+}
+
 function formatCount(value: number) {
   if (!value) return "";
   return Number.isInteger(value) ? String(value) : String(value);
@@ -84,10 +96,14 @@ export default function Home() {
     emptyPositions("2-4-1")
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [matches, setMatches] = useState<MatchRecord[]>([]);
+  const [editingMatchNo, setEditingMatchNo] = useState<number | null>(null);
+  const [absentIds, setAbsentIds] = useState<Record<string, boolean>>({});
 
-  const playerMap = useMemo(() => {
-    return Object.fromEntries(players.map((p) => [p.id, p]));
-  }, [players]);
+  const playerMap = useMemo(
+    () => Object.fromEntries(players.map((p) => [p.id, p])),
+    [players]
+  );
 
   const assignedMap = useMemo(() => {
     const result: Record<string, boolean> = {};
@@ -99,6 +115,20 @@ export default function Home() {
     return result;
   }, [positions]);
 
+  const matchesForTotals = useMemo(() => {
+    const currentMatch: MatchRecord = {
+      matchNo: editingMatchNo ?? matches.length + 1,
+      formation,
+      positions,
+    };
+
+    if (editingMatchNo === null) return [...matches, currentMatch];
+
+    return matches.map((m) =>
+      m.matchNo === editingMatchNo ? currentMatch : m
+    );
+  }, [matches, editingMatchNo, formation, positions]);
+
   const totals = useMemo(() => {
     const base: Record<
       string,
@@ -109,21 +139,32 @@ export default function Home() {
       base[p.id] = { FW: 0, MF: 0, DF: 0, GK: 0, total: 0 };
     });
 
-    FORMATIONS[formation].flat().forEach((pos) => {
-      const ids = positions[pos.id] || [];
-      if (ids.length === 0) return;
+    matchesForTotals.forEach((match) => {
+      FORMATIONS[match.formation].flat().forEach((pos) => {
+        const ids = match.positions[pos.id] || [];
+        if (ids.length === 0) return;
 
-      const point = ids.length === 1 ? 1 : 0.5;
+        const point = ids.length === 1 ? 1 : 0.5;
 
-      ids.forEach((id) => {
-        if (!base[id]) return;
-        base[id][pos.group] += point;
-        base[id].total += point;
+        ids.forEach((id) => {
+          if (!base[id]) return;
+          base[id][pos.group] += point;
+          base[id].total += point;
+        });
       });
     });
 
     return base;
-  }, [players, positions, formation]);
+  }, [players, matchesForTotals]);
+
+  const sortedPlayers = useMemo(() => {
+    return [...players].sort((a, b) => {
+      const absentA = absentIds[a.id] ? 1 : 0;
+      const absentB = absentIds[b.id] ? 1 : 0;
+      if (absentA !== absentB) return absentA - absentB;
+      return Number(a.number) - Number(b.number);
+    });
+  }, [players, absentIds]);
 
   const handleCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -149,7 +190,6 @@ export default function Home() {
       const parsed = dataLines
         .map((line, index) => {
           const [numberRaw, nameRaw, nicknameRaw] = line.split(",");
-
           const number = (numberRaw || "99").trim();
           const name = (nameRaw || "").trim();
           const nickname = (nicknameRaw || name || `選手${index + 1}`).trim();
@@ -166,6 +206,9 @@ export default function Home() {
       setPlayers(parsed);
       setSelectedId(null);
       setPositions(emptyPositions(formation));
+      setMatches([]);
+      setEditingMatchNo(null);
+      setAbsentIds({});
       e.target.value = "";
     };
 
@@ -179,11 +222,10 @@ export default function Home() {
   };
 
   const placePlayer = (positionId: string) => {
-    if (!selectedId) return;
+    if (!selectedId || absentIds[selectedId]) return;
 
     setPositions((prev) => {
       const next: Record<string, string[]> = {};
-
       Object.entries(prev).forEach(([key, ids]) => {
         next[key] = ids.filter((id) => id !== selectedId);
       });
@@ -207,38 +249,90 @@ export default function Home() {
     if (selectedId === playerId) setSelectedId(null);
   };
 
+  const toggleAbsent = (playerId: string) => {
+    setAbsentIds((prev) => {
+      const next = { ...prev, [playerId]: !prev[playerId] };
+      return next;
+    });
+
+    setPositions((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).map(([key, ids]) => [
+          key,
+          ids.filter((id) => id !== playerId),
+        ])
+      )
+    );
+
+    if (selectedId === playerId) setSelectedId(null);
+  };
+
+  const saveMatch = () => {
+    const record: MatchRecord = {
+      matchNo: editingMatchNo ?? matches.length + 1,
+      formation,
+      positions: clonePositions(positions),
+    };
+
+    if (editingMatchNo !== null) {
+      setMatches((prev) =>
+        prev.map((m) => (m.matchNo === editingMatchNo ? record : m))
+      );
+      setEditingMatchNo(null);
+    } else {
+      setMatches((prev) => [...prev, record]);
+    }
+
+    setPositions(emptyPositions(formation));
+    setSelectedId(null);
+  };
+
+  const editMatch = (matchNo: number) => {
+    const target = matches.find((m) => m.matchNo === matchNo);
+    if (!target) return;
+
+    setEditingMatchNo(matchNo);
+    setFormation(target.formation);
+    setPositions(clonePositions(target.positions));
+    setSelectedId(null);
+  };
+
+  const clearBoard = () => {
+    setPositions(emptyPositions(formation));
+    setSelectedId(null);
+  };
+
   return (
     <main
       style={{
         minHeight: "100vh",
         background: "#0b0f0d",
         color: "white",
-        padding: 10,
+        padding: 8,
         fontFamily: "system-ui, sans-serif",
         fontSize: 12,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
         <div>
-          <h1 style={{ fontSize: 15, margin: "0 0 6px" }}>
+          <h1 style={{ fontSize: 14, margin: "0 0 5px" }}>
             8人制サッカー 出場管理
           </h1>
-
           <input type="file" accept=".csv,text/csv" onChange={handleCSV} />
         </div>
 
-        <div style={{ display: "flex", gap: 6, alignItems: "start" }}>
+        <div style={{ display: "flex", gap: 5, alignItems: "start" }}>
           {Object.keys(FORMATIONS).map((f) => (
             <button
               key={f}
               onClick={() => changeFormation(f)}
               style={{
-                padding: "6px 10px",
+                padding: "5px 8px",
                 borderRadius: 8,
                 border: "1px solid #94a3b8",
                 background: formation === f ? "#1f2937" : "white",
                 color: formation === f ? "white" : "#111827",
-                fontWeight: 700,
+                fontWeight: 800,
               }}
             >
               {f}
@@ -247,33 +341,62 @@ export default function Home() {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+        <button onClick={saveMatch} style={{ padding: "5px 9px", fontWeight: 800 }}>
+          {editingMatchNo ? `第${editingMatchNo}試合を修正保存` : `第${matches.length + 1}試合を登録`}
+        </button>
+        <button onClick={clearBoard} style={{ padding: "5px 9px" }}>
+          盤面クリア
+        </button>
+      </div>
+
+      {matches.length > 0 && (
+        <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
+          {matches.map((m) => (
+            <button
+              key={m.matchNo}
+              onClick={() => editMatch(m.matchNo)}
+              style={{
+                padding: "4px 7px",
+                borderRadius: 7,
+                border: "1px solid #64748b",
+                background: editingMatchNo === m.matchNo ? "#facc15" : "#111827",
+                color: editingMatchNo === m.matchNo ? "#111827" : "white",
+              }}
+            >
+              第{m.matchNo}試合 修正
+            </button>
+          ))}
+        </div>
+      )}
+
       {selectedId && (
-        <div style={{ marginTop: 6, color: "#facc15", fontWeight: 800 }}>
-          選択中：{playerMap[selectedId]?.nickname} → 配置したい枠をタップ
+        <div style={{ marginTop: 5, color: "#facc15", fontWeight: 800 }}>
+          選択中：{playerMap[selectedId]?.nickname}
         </div>
       )}
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(220px, 1fr) minmax(155px, 0.7fr)",
-          gap: 10,
-          marginTop: 8,
+          gridTemplateColumns: "minmax(205px, 1fr) minmax(145px, 0.68fr)",
+          gap: 7,
+          marginTop: 7,
           alignItems: "start",
         }}
       >
         <section>
-          <h2 style={{ fontSize: 12, margin: "0 0 5px" }}>
-            第1試合 フォーメーション
+          <h2 style={{ fontSize: 12, margin: "0 0 4px" }}>
+            第{editingMatchNo ?? matches.length + 1}試合 フォーメーション
           </h2>
 
           <div
             style={{
               background: "#0f7a3b",
-              borderRadius: 12,
-              padding: 8,
+              borderRadius: 10,
+              padding: 5,
               border: "2px solid #166534",
-              minHeight: 500,
+              minHeight: 470,
               display: "flex",
               flexDirection: "column",
               justifyContent: "space-between",
@@ -285,37 +408,37 @@ export default function Home() {
                 style={{
                   display: "flex",
                   justifyContent: "center",
-                  gap: 8,
+                  gap: formation === "2-4-1" ? 5 : 7,
                 }}
               >
                 {row.map((pos) => {
                   const ids = positions[pos.id] || [];
                   const isFull = ids.length >= 2;
-                  const canPlace = selectedId && !isFull;
+                  const canPlace = selectedId && !isFull && !absentIds[selectedId];
 
                   return (
                     <div
                       key={pos.id}
                       onClick={() => placePlayer(pos.id)}
                       style={{
-                        width: formation === "2-4-1" ? 82 : 92,
-                        minHeight: 76,
+                        width: formation === "2-4-1" ? 72 : 84,
+                        minHeight: 72,
                         background: canPlace ? "#dcfce7" : "#ecfdf5",
                         color: "#052e16",
                         border: canPlace
                           ? "3px solid #facc15"
                           : "2px solid #bbf7d0",
                         borderRadius: 10,
-                        padding: 5,
+                        padding: 4,
                         boxSizing: "border-box",
                         cursor: canPlace ? "pointer" : "default",
                       }}
                     >
-                      <div style={{ fontWeight: 900, marginBottom: 4 }}>
+                      <div style={{ fontWeight: 900, marginBottom: 3 }}>
                         {pos.label}
                       </div>
 
-                      <div style={{ display: "grid", gap: 4 }}>
+                      <div style={{ display: "grid", gap: 3 }}>
                         {ids.map((id) => (
                           <button
                             key={id}
@@ -338,13 +461,7 @@ export default function Home() {
                         ))}
 
                         {ids.length < 2 && (
-                          <div
-                            style={{
-                              fontSize: 10,
-                              color: "#166534",
-                              opacity: 0.8,
-                            }}
-                          >
+                          <div style={{ fontSize: 10, color: "#166534" }}>
                             空き
                           </div>
                         )}
@@ -358,7 +475,7 @@ export default function Home() {
         </section>
 
         <section>
-          <h2 style={{ fontSize: 12, margin: "0 0 5px" }}>メンバー表</h2>
+          <h2 style={{ fontSize: 12, margin: "0 0 4px" }}>メンバー表</h2>
 
           <table
             style={{
@@ -369,23 +486,24 @@ export default function Home() {
             }}
           >
             <colgroup>
-              <col style={{ width: 28 }} />
-              <col style={{ width: 64 }} />
-              <col style={{ width: 28 }} />
-              <col style={{ width: 28 }} />
-              <col style={{ width: 28 }} />
-              <col style={{ width: 28 }} />
-              <col style={{ width: 28 }} />
+              <col style={{ width: 26 }} />
+              <col style={{ width: 50 }} />
+              <col style={{ width: 24 }} />
+              <col style={{ width: 24 }} />
+              <col style={{ width: 24 }} />
+              <col style={{ width: 24 }} />
+              <col style={{ width: 24 }} />
+              <col style={{ width: 34 }} />
             </colgroup>
 
             <thead>
               <tr>
-                {["No", "愛称", "FW", "MF", "DF", "GK", "計"].map((h) => (
+                {["No", "愛称", "FW", "MF", "DF", "GK", "計", "不在"].map((h) => (
                   <th
                     key={h}
                     style={{
                       borderBottom: "1px solid #64748b",
-                      padding: 3,
+                      padding: "5px 2px",
                       textAlign: h === "No" || h === "愛称" ? "left" : "right",
                     }}
                   >
@@ -396,28 +514,33 @@ export default function Home() {
             </thead>
 
             <tbody>
-              {players.map((p) => {
+              {sortedPlayers.map((p) => {
                 const selected = selectedId === p.id;
                 const assigned = assignedMap[p.id];
+                const absent = absentIds[p.id];
 
                 return (
                   <tr
                     key={p.id}
-                    onClick={() => setSelectedId(p.id)}
+                    onClick={() => {
+                      if (!absent) setSelectedId(p.id);
+                    }}
                     style={{
-                      background: selected
+                      background: absent
+                        ? "#374151"
+                        : selected
                         ? "#facc15"
                         : assigned
                         ? "#064e3b"
                         : "transparent",
-                      color: selected ? "#111827" : "white",
-                      cursor: "pointer",
+                      color: selected ? "#111827" : absent ? "#9ca3af" : "white",
+                      cursor: absent ? "default" : "pointer",
                     }}
                   >
-                    <td style={{ padding: 3 }}>{p.number}</td>
+                    <td style={{ padding: "6px 2px" }}>{p.number}</td>
                     <td
                       style={{
-                        padding: 3,
+                        padding: "6px 2px",
                         fontWeight: 800,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -426,26 +549,44 @@ export default function Home() {
                     >
                       {p.nickname}
                     </td>
-                    <td style={{ padding: 3, textAlign: "right" }}>
+                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.FW || 0)}
                     </td>
-                    <td style={{ padding: 3, textAlign: "right" }}>
+                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.MF || 0)}
                     </td>
-                    <td style={{ padding: 3, textAlign: "right" }}>
+                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.DF || 0)}
                     </td>
-                    <td style={{ padding: 3, textAlign: "right" }}>
+                    <td style={{ padding: "6px 2px", textAlign: "right" }}>
                       {formatCount(totals[p.id]?.GK || 0)}
                     </td>
                     <td
                       style={{
-                        padding: 3,
+                        padding: "6px 2px",
                         textAlign: "right",
                         fontWeight: 900,
                       }}
                     >
                       {formatCount(totals[p.id]?.total || 0)}
+                    </td>
+                    <td style={{ padding: "4px 2px", textAlign: "right" }}>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleAbsent(p.id);
+                        }}
+                        style={{
+                          fontSize: 10,
+                          padding: "3px 4px",
+                          borderRadius: 6,
+                          border: "1px solid #64748b",
+                          background: absent ? "#9ca3af" : "#111827",
+                          color: absent ? "#111827" : "white",
+                        }}
+                      >
+                        {absent ? "復帰" : "不在"}
+                      </button>
                     </td>
                   </tr>
                 );
